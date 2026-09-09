@@ -24,8 +24,6 @@ All versions: [Releases](https://github.com/angeiger/Fumble/releases)
 - **Four looks**, two light and two dark.
 - **Nothing leaves the device.** The app has no network permission at all.
 
-> Formerly released as *inder*. The application id is deliberately unchanged, so this
-> installs as an update over an existing copy and keeps its swipe history.
 
 ---
 
