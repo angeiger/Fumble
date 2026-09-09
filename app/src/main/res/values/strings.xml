@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Fumble</string>
+    <!-- Shown under the wordmark so a first-time user gets the joke immediately. -->
+    <string name="app_tagline">Foto Bumble</string>
+
+    <!-- Permission gate -->
+    <string name="permission_title">Your gallery, one card at a time</string>
+    <string name="permission_body">Fumble needs access to your photos so it can show them to you. Nothing ever leaves your device.</string>
+    <string name="permission_cta">Allow access</string>
+    <string name="permission_settings_cta">Open settings</string>
+    <string name="permission_denied_body">Photo access is turned off. Enable it in system settings to start swiping.</string>
+
+    <!-- Partial access (Android 14+) -->
+    <string name="partial_access_label">Showing only the photos you selected</string>
+    <string name="partial_access_cta">Select more</string>
+
+    <!-- Swipe screen -->
+    <string name="cd_photo">Photo</string>
+    <string name="cd_keep">Keep</string>
+    <string name="cd_trash">Move to trash</string>
+    <string name="cd_favorite">Mark as favourite</string>
+    <string name="cd_undo">Undo last swipe</string>
+    <string name="cd_undo_count">Undo last swipe, %1$d can still be taken back</string>
+    <string name="overlay_keep">KEEP</string>
+    <string name="overlay_trash">TRASH</string>
+    <string name="overlay_favorite">FAVOURITE</string>
+    <string name="remaining_count">%1$d left</string>
+    <string name="freed_label">%1$s freed</string>
+    <string name="photo_unavailable">This photo is no longer available</string>
+
+    <!-- Pending work pill -->
+    <string name="pending_trash">%1$d to delete · %2$s</string>
+    <string name="pending_favorites">%1$d to favourite</string>
+    <string name="pending_both">%1$d to delete · %2$d to favourite</string>
+    <string name="pending_trash_cta">Apply</string>
+
+    <!-- Albums -->
+    <string name="album_all">All photos</string>
+    <string name="album_unnamed">Unsorted</string>
+    <string name="album_sheet_title">Swipe through</string>
+    <string name="cd_pick_album">Choose an album</string>
+
+    <!-- Empty state -->
+    <string name="empty_title">All caught up</string>
+    <string name="empty_body">You have reviewed every photo on this device.</string>
+    <string name="empty_body_album">You have reviewed every photo in %1$s.</string>
+    <string name="empty_all_albums_cta">Show all photos</string>
+    <string name="empty_reset_cta">Start over</string>
+    <string name="reset_confirm_title">Start over?</string>
+    <string name="reset_confirm_body">This clears Fumble\'s review history so every photo shows up again. Your photos are not affected.</string>
+    <string name="reset_confirm_yes">Start over</string>
+    <string name="cancel">Cancel</string>
+
+    <!-- Celebration -->
+    <string name="celebration_headline">freed</string>
+    <string name="celebration_subtitle">%1$d photos · recoverable for 30 days</string>
+
+    <!-- Settings -->
+    <string name="cd_settings">Settings</string>
+    <string name="settings_title">Settings</string>
+    <string name="settings_threshold_title">Ask me after</string>
+    <string name="settings_threshold_body">How many left swipes pile up before Fumble asks to empty them. Lower means more prompts, higher means more photos waiting.</string>
+    <string name="settings_theme_title">Look</string>
+    <string name="settings_version">Fumble %1$s · Foto Bumble</string>
+
+    <!-- Messages -->
+    <string name="msg_trash_declined">Nothing was changed</string>
+    <string name="msg_trash_failed">Could not reach the gallery right now</string>
+    <string name="msg_favorited">%1$d marked as favourite</string>
+</resources>

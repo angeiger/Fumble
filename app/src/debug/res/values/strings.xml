@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Overrides the launcher label for debug installs only. Together with the
+    `.debug` applicationIdSuffix this lets the test build and the real one sit on
+    the same device without two identical icons.
+-->
+<resources>
+    <string name="app_name">Fumble debug</string>
+</resources>

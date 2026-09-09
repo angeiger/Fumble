@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mirrors ui/theme/Color.kt so the window background matches before Compose draws. -->
+    <color name="fumble_canvas">#FFF6F7FB</color>
+    <color name="ic_launcher_background">#FFF6F7FB</color>
+</resources>

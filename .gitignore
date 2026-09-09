@@ -1,0 +1,28 @@
+*.iml
+.gradle/
+local.properties
+.idea/
+.DS_Store
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+/dist/
+
+# Output of the "Generate Signed APK" wizard: metadata and baseline profiles that
+# belong to one local build, not to the source.
+/app/release/
+
+# Reference recordings and scratch media used while designing. Personal, and not
+# part of the app.
+*.mp4
+*.mov
+*.gif
+
+# Signing material must never end up in version control.
+*.keystore
+*.jks
+keystore.properties
+!debug.keystore
