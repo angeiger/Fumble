@@ -34,8 +34,6 @@ installieren — sie nutzt eine Papierkorb-Funktion, die es davor nicht gab.
 
 Fertig. Die App liegt jetzt im App-Drawer.
 
-*Hattest du vorher „inder"?* Dann ersetzt diese Installation die alte Version, und dein
-bisheriger Verlauf bleibt erhalten. Nur der Name auf dem Homescreen ändert sich.
 
 ---
 
