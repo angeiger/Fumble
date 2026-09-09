@@ -24,6 +24,18 @@ data class FumbleColors(
     val keepSoft: Color,
     val trash: Color,
     val trashSoft: Color,
+
+    /**
+     * The one control that carries no meaning: undo.
+     *
+     * Its own pair rather than a reuse of `surface` and `inkMuted`, because those exist
+     * to sit *quietly* against the ground and undo has to be found at a glance. Each
+     * palette tunes its own grey, since how far a neutral has to travel from the canvas
+     * to register differs completely between a near-white and a true black.
+     */
+    val neutral: Color,
+    val neutralSoft: Color,
+
     /** Shadow tint under cards. Near-black on light grounds, and absent on dark ones. */
     val cardShadow: Color,
     /** True when the ground is dark, so system bar icons can be flipped to light. */
@@ -51,6 +63,10 @@ private val Daylight = FumbleColors(
     keepSoft = Color(0xFFE1F8F1),
     trash = Color(0xFFFF4D6A),
     trashSoft = Color(0xFFFFE8EC),
+    // A grey with enough weight to read against a near-white ground, and anthracite
+    // on top rather than the muted ink used for quiet text.
+    neutral = Color(0xFF3C414F),
+    neutralSoft = Color(0xFFDFE2EB),
     cardShadow = Color(0x1F161A2E),
     isDark = false,
 )
@@ -68,6 +84,11 @@ private val Paper = FumbleColors(
     keepSoft = Color(0xFFE4F2E9),
     trash = Color(0xFFD9534F),
     trashSoft = Color(0xFFFBE6E5),
+    // Built like this palette's accent pair — a soft tint carrying a saturated mark —
+    // but in warm taupe rather than terracotta, so it belongs without being mistaken
+    // for the favourite button beside it.
+    neutral = Color(0xFF6E6152),
+    neutralSoft = Color(0xFFEBE0CE),
     cardShadow = Color(0x1F3A2E1E),
     isDark = false,
 )
@@ -85,6 +106,11 @@ private val Midnight = FumbleColors(
     keepSoft = Color(0xFF16342C),
     trash = Color(0xFFFF6B83),
     trashSoft = Color(0xFF3A2029),
+    // Lifted clearly above the surface, not just the canvas: on a dark ground a
+    // container has to out-rank the cards to be found, and a light mark on top of it
+    // carries the rest.
+    neutral = Color(0xFFC7CDDC),
+    neutralSoft = Color(0xFF333949),
     // A shadow under a dark card on a dark ground is invisible; the surface lift does
     // the separating instead.
     cardShadow = Color(0x00000000),
@@ -104,6 +130,10 @@ private val Carbon = FumbleColors(
     keepSoft = Color(0xFF10281F),
     trash = Color(0xFFFF5C7A),
     trashSoft = Color(0xFF2E1119),
+    // The widest jump of the four: against true black even a mid grey reads as bright,
+    // so the container sits well above the surface and the mark stays clearly lighter.
+    neutral = Color(0xFFD2D2D2),
+    neutralSoft = Color(0xFF2C2C2C),
     cardShadow = Color(0x00000000),
     isDark = true,
 )

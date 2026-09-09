@@ -38,10 +38,10 @@ import com.fumble.app.R
 import com.fumble.app.domain.model.SwipeDirection
 import com.fumble.app.ui.theme.FumbleAccent
 import com.fumble.app.ui.theme.FumbleAccentSoft
-import com.fumble.app.ui.theme.FumbleInkMuted
 import com.fumble.app.ui.theme.FumbleKeep
 import com.fumble.app.ui.theme.FumbleKeepSoft
-import com.fumble.app.ui.theme.FumbleSurface
+import com.fumble.app.ui.theme.FumbleNeutral
+import com.fumble.app.ui.theme.FumbleNeutralSoft
 import com.fumble.app.ui.theme.FumbleTrash
 import com.fumble.app.ui.theme.FumbleTrashSoft
 
@@ -92,9 +92,10 @@ fun SwipeActionBar(
             onClick = { onSwipe(SwipeDirection.LEFT) },
         )
 
-        // The one neutral button in the row. It takes the surface colour rather than a
-        // tint, which stands apart from the canvas in every palette without claiming a
-        // meaning the other three own.
+        // The one button in the row that carries no meaning, so it gets the palette's
+        // neutral pair rather than one of the three semantic tints. Neutral is not the
+        // same as quiet: it still has to be findable at a glance, which is why each
+        // palette tunes its own grey instead of everyone reusing the surface colour.
         CircleAction(
             icon = Icons.Rounded.Refresh,
             contentDescription = if (undoDepth > 1) {
@@ -102,8 +103,8 @@ fun SwipeActionBar(
             } else {
                 stringResource(R.string.cd_undo)
             },
-            tint = FumbleInkMuted,
-            container = FumbleSurface,
+            tint = FumbleNeutral,
+            container = FumbleNeutralSoft,
             iconSize = 24.dp,
             enabled = canUndo,
             mirrored = true,

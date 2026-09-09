@@ -57,5 +57,11 @@ val FumbleTrash: Color
 val FumbleTrashSoft: Color
     @Composable @ReadOnlyComposable get() = LocalFumbleColors.current.trashSoft
 
+val FumbleNeutral: Color
+    @Composable @ReadOnlyComposable get() = LocalFumbleColors.current.neutral
+
+val FumbleNeutralSoft: Color
+    @Composable @ReadOnlyComposable get() = LocalFumbleColors.current.neutralSoft
+
 val FumbleCardShadow: Color
     @Composable @ReadOnlyComposable get() = LocalFumbleColors.current.cardShadow
