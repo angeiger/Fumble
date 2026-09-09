@@ -38,15 +38,25 @@ import com.fumble.app.R
 import com.fumble.app.domain.model.SwipeDirection
 import com.fumble.app.ui.theme.FumbleAccent
 import com.fumble.app.ui.theme.FumbleAccentSoft
-import com.fumble.app.ui.theme.FumbleInkFaint
+import com.fumble.app.ui.theme.FumbleInkMuted
 import com.fumble.app.ui.theme.FumbleKeep
 import com.fumble.app.ui.theme.FumbleKeepSoft
+import com.fumble.app.ui.theme.FumbleSurface
 import com.fumble.app.ui.theme.FumbleTrash
 import com.fumble.app.ui.theme.FumbleTrashSoft
 
+/** One size for all four, so the row reads as a set rather than a hierarchy. */
+private val ActionSize = 60.dp
+
 /**
- * Trash, keep, and a small undo. Tapping routes through the same [SwipeDirection]
- * pipeline the gesture uses, so a button press produces an identical card animation.
+ * Trash, undo, favourite, keep — left to right.
+ *
+ * The order mirrors the gestures: trash sits on the left where a left swipe goes, keep
+ * on the right where a right swipe goes. Undo and favourite fill the middle, with undo
+ * next to the destructive button it most often has to take back.
+ *
+ * Tapping routes through the same [SwipeDirection] pipeline the gesture uses, so a
+ * button press produces an identical card animation.
  *
  * @param canUndo undo stays available with an empty deck — that is exactly when a
  *   misfired last swipe most needs taking back.
@@ -66,10 +76,25 @@ fun SwipeActionBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 20.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
+            // Four equal circles plus gaps have to fit a 320dp screen, which leaves
+            // little room either side.
+            .padding(horizontal = 20.dp, vertical = 20.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        CircleAction(
+            icon = Icons.Rounded.Close,
+            contentDescription = stringResource(R.string.cd_trash),
+            tint = FumbleTrash,
+            container = FumbleTrashSoft,
+            iconSize = 28.dp,
+            enabled = enabled,
+            onClick = { onSwipe(SwipeDirection.LEFT) },
+        )
+
+        // The one neutral button in the row. It takes the surface colour rather than a
+        // tint, which stands apart from the canvas in every palette without claiming a
+        // meaning the other three own.
         CircleAction(
             icon = Icons.Rounded.Refresh,
             contentDescription = if (undoDepth > 1) {
@@ -77,35 +102,20 @@ fun SwipeActionBar(
             } else {
                 stringResource(R.string.cd_undo)
             },
-            tint = FumbleInkFaint,
-            container = Color.Transparent,
-            size = 46.dp,
-            iconSize = 20.dp,
+            tint = FumbleInkMuted,
+            container = FumbleSurface,
+            iconSize = 24.dp,
             enabled = canUndo,
             mirrored = true,
             onClick = onUndo,
         )
 
         CircleAction(
-            icon = Icons.Rounded.Close,
-            contentDescription = stringResource(R.string.cd_trash),
-            tint = FumbleTrash,
-            container = FumbleTrashSoft,
-            size = 66.dp,
-            iconSize = 30.dp,
-            enabled = enabled,
-            onClick = { onSwipe(SwipeDirection.LEFT) },
-        )
-
-        // Smaller than its neighbours on purpose: favouriting is the rare, deliberate
-        // action, and it should not compete with the two the user takes all day.
-        CircleAction(
             icon = Icons.Rounded.Star,
             contentDescription = stringResource(R.string.cd_favorite),
             tint = FumbleAccent,
             container = FumbleAccentSoft,
-            size = 52.dp,
-            iconSize = 24.dp,
+            iconSize = 26.dp,
             enabled = enabled,
             onClick = { onSwipe(SwipeDirection.UP) },
         )
@@ -115,8 +125,7 @@ fun SwipeActionBar(
             contentDescription = stringResource(R.string.cd_keep),
             tint = FumbleKeep,
             container = FumbleKeepSoft,
-            size = 66.dp,
-            iconSize = 28.dp,
+            iconSize = 26.dp,
             enabled = enabled,
             onClick = { onSwipe(SwipeDirection.RIGHT) },
         )
@@ -129,7 +138,6 @@ private fun CircleAction(
     contentDescription: String,
     tint: Color,
     container: Color,
-    size: Dp,
     iconSize: Dp,
     enabled: Boolean,
     onClick: () -> Unit,
@@ -148,7 +156,7 @@ private fun CircleAction(
 
     Box(
         modifier = Modifier
-            .size(size)
+            .size(ActionSize)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
