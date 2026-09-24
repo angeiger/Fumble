@@ -42,7 +42,8 @@ data class PhotoDecisionEntity(
     val trashApplied: Boolean,
 
     /**
-     * Whether `IS_FAVORITE` has actually been written for a [Decision.FAVORITE] row.
+     * Whether a [Decision.FAVORITE] row has verifiably reached the favourites album,
+     * moved or copied.
      *
      * A separate column from [trashApplied] rather than one shared "settled" flag:
      * the two are different MediaStore writes needing separate consent dialogs, and
@@ -50,6 +51,16 @@ data class PhotoDecisionEntity(
      */
     @ColumnInfo(name = "favorite_applied", defaultValue = "0")
     val favoriteApplied: Boolean = false,
+
+    /**
+     * Set when this row is not a swipe at all but the album copy of the favourite
+     * [copyOf] — made because the original could not leave another app's folder.
+     *
+     * The row exists only so the copy is never dealt as a card. Stats skip it, or
+     * every copied favourite would be counted twice.
+     */
+    @ColumnInfo(name = "copy_of")
+    val copyOf: Long? = null,
 )
 
 /**

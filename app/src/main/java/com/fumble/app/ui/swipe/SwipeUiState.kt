@@ -80,5 +80,9 @@ sealed interface SwipeEffect {
 sealed interface UiMessage {
     data object TrashDeclined : UiMessage
     data object TrashFailed : UiMessage
-    data class Favorited(val count: Int) : UiMessage
+    /**
+     * [count] favourites verifiably reached the album, [copies] of them as copies
+     * because their original lives in another app's folder and may not leave it.
+     */
+    data class Favorited(val count: Int, val copies: Int) : UiMessage
 }

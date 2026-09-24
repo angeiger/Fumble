@@ -133,24 +133,41 @@ photos appeared in no favourites view the user could find. Google Photos' own fa
 cannot be written from outside at all; no API exists, and the ones that come close need
 network access this app deliberately does not have.
 
-So a favourite is now **moved** into `Pictures/Fumble Favoriten/` by rewriting
-`RELATIVE_PATH` — an album every gallery shows, Google Photos under *Collections → On
-this device*. `IS_FAVORITE` is still set alongside for the apps that honour it. The row
-keeps its MediaStore id, so the decision history stays valid, and nothing is copied.
+So a favourite now ends up in `Pictures/Fumble Favoriten/` — an album every gallery
+shows, Google Photos under *Collections → On this device*. How it gets there depends on
+where it lives, and 4.1.0 learned that the hard way:
 
-Two consequences shape the code:
+- **Most photos are moved** by rewriting `RELATIVE_PATH`. The row keeps its MediaStore
+  id, so the decision history stays valid, and nothing is duplicated. `IS_FAVORITE` is
+  set alongside for the apps that honour it.
+- **Photos in another app's media area are copied.** Android will not let a file leave
+  `Android/media/<package>/` — every WhatsApp picture lives there — and it refuses
+  *silently*: the update reports success, the target folder is even created, and the
+  photo stays exactly where it was. 4.1.0 believed the report and announced 48 moves
+  into an empty album. From 4.1.1 those photos are copied instead, with their original
+  capture date carried over (as `DATE_TAKEN`, and stamped into the EXIF data when the
+  file has none, since WhatsApp strips it). The original stays in the chat. Copying a
+  file the app can read into its own new file needs no dialog.
 
+What makes this trustworthy is in `PhotoRepositoryImpl.flushFavoritesLocked`:
+
+- **Every favourite is located before and after.** A photo already in the album is
+  done; one that has vanished is dropped from the queue; one in an app media area goes
+  straight to copying. After a move the path is read back, and anything the system
+  quietly left behind is copied rather than counted. Only what is verifiably in the
+  album is marked done and announced — the rest stays queued.
+- **Copies are recorded as decided** (a favourite row that is already applied), so the
+  new file is never dealt as a card of its own.
 - **Moving needs `createWriteRequest`, and that request only grants access.** Unlike
   a trash request, approval changes nothing by itself; `confirmApplied` performs the
-  move afterwards, while the grant is fresh, and reports how many actually moved.
-  Marking the rows done on approval alone would claim success for photos still sitting
-  in the camera folder.
-- **Database version 3 re-queues every earlier favourite**, so photos favourited under
-  4.0.0 move too instead of staying stranded as the only ones that never arrived.
+  move afterwards, while the grant is fresh, then verifies it the same way. Photos that
+  were settled before the dialog appeared are counted in the same message.
+- **Database versions 3 and 4 re-queue every earlier favourite**, so photos favourited
+  under 4.0.0 (flag only) or 4.1.0 (reported as moved, possibly not) run through the
+  verified path. Ones that did arrive are recognised and cost nothing.
 
-If a move fails for a reason other than permission — most plausibly a same-named file
-already in the folder — the photo is still flagged, just not moved, rather than retried
-forever.
+The folder rules (what counts as the album, what cannot be moved) live in
+`FavoritesAlbum` as plain functions with their own tests.
 
 The platform has no combined request, so a settle that needs consent for both raises
 two dialogs — trash first, favourites only once that answer is in. Stacking them would
@@ -321,7 +338,8 @@ Unit tests:
 | File | Role |
 | --- | --- |
 | `data/media/MediaStoreDataSource.kt` | Every read and write against the gallery |
-| `data/repository/PhotoRepositoryImpl.kt` | The shuffled queue, albums, de-duplication, trash flush |
+| `data/repository/PhotoRepositoryImpl.kt` | The shuffled queue, albums, de-duplication, trash and favourite flush |
+| `data/media/FavoritesAlbum.kt` | Which folder is the album, which photos must be copied |
 | `ui/swipe/SwipeViewModel.kt` | Deck, undo stack, effects |
 | `ui/swipe/TrashPromptPolicy.kt` | When to ask the system to empty the queue |
 | `ui/swipe/components/SwipeCardStack.kt` | The stack and its animation |

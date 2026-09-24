@@ -56,9 +56,14 @@ Balken weist dich dann darauf hin, und du kannst es jederzeit ändern.
 Für alle drei gibt es unten auch Knöpfe, falls dir das lieber ist.
 
 **Favoriten** sind gedacht für den Fall, dass dir beim Durchgehen ein längst vergessenes
-Bild begegnet, das du wiederfinden willst. Das Foto wird dafür in einen eigenen Ordner
-verschoben — nicht kopiert, es entsteht also kein Duplikat und kein zusätzlicher
-Speicherverbrauch.
+Bild begegnet, das du wiederfinden willst. Kamerafotos werden dafür in einen eigenen
+Ordner verschoben — es entsteht kein Duplikat und kein zusätzlicher Speicherverbrauch.
+
+**Bilder aus WhatsApp, Telegram & Co.** darf Android nicht aus dem Ordner der
+jeweiligen App herausschieben. Die landen deshalb als **Kopie** im Album: Das Original
+bleibt im Chat sichtbar, die Kopie trägt das ursprüngliche Aufnahmedatum und taucht in
+der Galerie also an der richtigen Stelle auf. Dafür fragt dein Handy nicht einmal nach.
+Die Meldung nach dem Anwenden sagt dir, wie viele davon Kopien sind.
 
 **So findest du sie:** In Google Fotos unter *Sammlungen → Auf diesem Gerät →
 Fumble Favoriten*. In anderen Galerie-Apps erscheint der Ordner als eigenes Album.
@@ -76,7 +81,8 @@ Fumble Favoriten*. In anderen Galerie-Apps erscheint der Ordner als eigenes Albu
 genug zusammen sind — oder du die Pille oben antippst — fragt dein Handy einmal nach.
 Liegt beides an, kommen zwei Abfragen nacheinander: erst *„…in den Papierkorb
 verschieben?"*, dann *„…diese Fotos ändern?"* für die Favoriten. Android erlaubt dafür
-leider keine gemeinsame Rückfrage.
+leider keine gemeinsame Rückfrage. Sind unter den Favoriten nur Bilder aus anderen Apps,
+entfällt die zweite Abfrage ganz.
 
 **Alles ist 30 Tage lang wiederherstellbar.** Die Bilder landen im System-Papierkorb,
 nicht im Nirwana. Zu finden unter *Google Fotos → Galerie → Papierkorb* oder in der

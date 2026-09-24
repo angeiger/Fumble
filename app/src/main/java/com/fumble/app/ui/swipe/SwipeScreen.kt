@@ -288,5 +288,10 @@ private fun ResetHistoryDialog(
 private fun Context.render(message: UiMessage): String = when (message) {
     UiMessage.TrashDeclined -> getString(R.string.msg_trash_declined)
     UiMessage.TrashFailed -> getString(R.string.msg_trash_failed)
-    is UiMessage.Favorited -> getString(R.string.msg_favorited, message.count)
+    is UiMessage.Favorited ->
+        if (message.copies > 0) {
+            getString(R.string.msg_favorited_copies, message.count, message.copies)
+        } else {
+            getString(R.string.msg_favorited, message.count)
+        }
 }

@@ -24,8 +24,8 @@ android {
         // (IS_TRASHED / createTrashRequest) only exists from Android 11.
         minSdk = 30
         targetSdk = 35
-        versionCode = 6
-        versionName = "4.1.0"
+        versionCode = 7
+        versionName = "4.1.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -98,6 +98,9 @@ dependencies {
     ksp(libs.androidx.room.compiler)
 
     implementation(libs.coil.compose)
+    // Stamps the original date into copied favourites, so a copy does not show up in
+    // the gallery as a photo taken today.
+    implementation(libs.androidx.exifinterface)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

@@ -26,11 +26,17 @@ sealed interface FlushResult {
     /** Queue was empty. */
     data object Nothing : FlushResult
 
-    /** Everything queued is written, no dialog needed. */
+    /**
+     * Everything queued is written, no dialog needed.
+     *
+     * @property count photos confirmed done — for favourites, confirmed *in the album*.
+     * @property copies how many of [count] are copies rather than moves.
+     */
     data class Completed(
         val kind: PendingKind,
         val count: Int,
         val bytes: Long,
+        val copies: Int = 0,
     ) : FlushResult
 
     /**
@@ -43,10 +49,26 @@ sealed interface FlushResult {
         val intentSender: IntentSender,
         val mediaIds: List<Long>,
         val bytes: Long,
+        /**
+         * Favourites already settled in this pass before the dialog was needed — ones
+         * found in the album, or copied because they could not be moved. Reported
+         * together with whatever the dialog brings.
+         */
+        val alreadyDone: Applied = Applied(0),
     ) : FlushResult
 
     /** The queue could not be reached at all this time. */
     data class Failed(val kind: PendingKind, val cause: Throwable) : FlushResult
+}
+
+/**
+ * How many photos a write verifiably reached.
+ *
+ * @property copies how many of [count] are copies in the favourites album rather than
+ *   moves, because Android would not let the original leave its folder.
+ */
+data class Applied(val count: Int, val copies: Int = 0) {
+    operator fun plus(other: Applied) = Applied(count + other.count, copies + other.copies)
 }
 
 /**
@@ -108,11 +130,12 @@ interface PhotoRepository {
 
     /**
      * The user approved a [FlushResult.ConsentRequired] batch. For favourites this is
-     * where the photos are actually moved, since approval only grants access.
+     * where the photos are actually moved, since approval only grants access — and
+     * where any the system still refuses to move are copied instead.
      *
-     * @return how many photos the write actually reached. Any shortfall stays queued.
+     * @return how many photos verifiably arrived. Any shortfall stays queued.
      */
-    suspend fun confirmApplied(kind: PendingKind, mediaIds: List<Long>): Int
+    suspend fun confirmApplied(kind: PendingKind, mediaIds: List<Long>): Applied
 
     /** Clears the whole decision history so every photo can be reviewed again. */
     suspend fun resetHistory()

@@ -7,7 +7,7 @@ import com.fumble.app.data.local.PhotoDecisionEntity
 import com.fumble.app.data.local.AppPreferences
 import com.fumble.app.data.media.MediaIndex
 import com.fumble.app.data.media.MediaStoreDataSource
-import com.fumble.app.data.media.DirectWriteResult
+import com.fumble.app.data.media.FavoritesAlbum
 import com.fumble.app.data.media.WriteTarget
 import com.fumble.app.di.IoDispatcher
 import com.fumble.app.domain.model.Album
@@ -16,6 +16,7 @@ import com.fumble.app.domain.model.Decision
 import com.fumble.app.domain.model.LibraryStats
 import com.fumble.app.domain.model.PendingWrite
 import com.fumble.app.domain.model.Photo
+import com.fumble.app.domain.repository.Applied
 import com.fumble.app.domain.repository.FlushResult
 import com.fumble.app.domain.repository.PendingKind
 import com.fumble.app.domain.repository.PhotoBatch
@@ -185,68 +186,139 @@ class PhotoRepositoryImpl @Inject constructor(
     /**
      * Settles one queue.
      *
-     * Trashing and favouriting are the same shape of problem — a MediaStore write the
-     * app may make for its own media and must ask about for everyone else's — so they
-     * share one path rather than two that would drift apart. They differ only in what
-     * approval means, which [confirmApplied] deals with.
+     * Both queues share the consent machinery, but they differ in what can be trusted.
+     * A trash write either lands or throws. A favourite move can report success and
+     * quietly do nothing, so favourites are never judged by what MediaStore says, only
+     * by where the photos turn out to be — see [flushFavoritesLocked].
      */
     override suspend fun flush(kind: PendingKind): FlushResult = withContext(io) {
         writeLock.withLock {
-            val pending = when (kind) {
-                PendingKind.TRASH -> dao.pendingTrash()
-                PendingKind.FAVORITE -> dao.pendingFavorites()
+            when (kind) {
+                PendingKind.TRASH -> flushTrashLocked()
+                PendingKind.FAVORITE -> flushFavoritesLocked()
             }
-            if (pending.isEmpty()) return@withLock FlushResult.Nothing
+        }
+    }
 
-            val bytesById = pending.associate { it.mediaId to it.sizeBytes }
-            val targets = pending.map { WriteTarget(it.mediaId, it.contentUri.toUri()) }
+    private suspend fun flushTrashLocked(): FlushResult {
+        val pending = dao.pendingTrash()
+        if (pending.isEmpty()) return FlushResult.Nothing
 
-            // Step 1: try the direct write. Free and silent for media this app owns.
-            val direct = try {
-                writeDirectly(kind, targets)
-            } catch (e: RuntimeException) {
-                Log.w(TAG, "Direct $kind write failed", e)
-                return@withLock FlushResult.Failed(kind, e)
-            }
+        val bytesById = pending.associate { it.mediaId to it.sizeBytes }
+        val targets = pending.map { WriteTarget(it.mediaId, it.contentUri.toUri()) }
 
-            // Photos that vanished from MediaStore are settled too: there is nothing
-            // left to write, and leaving them queued would block the batch forever.
-            markApplied(kind, direct.applied + direct.vanished)
+        // Step 1: try the direct write. Free and silent for media this app owns.
+        val direct = try {
+            mediaStore.applyTrash(targets)
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "Direct trash write failed", e)
+            return FlushResult.Failed(PendingKind.TRASH, e)
+        }
 
-            if (direct.needsConsent.isEmpty()) {
-                return@withLock FlushResult.Completed(
-                    kind = kind,
-                    count = direct.applied.size,
-                    bytes = direct.applied.sumOf { bytesById[it] ?: 0L },
-                )
-            }
+        // Photos that vanished from MediaStore are settled too: there is nothing left
+        // to write, and leaving them queued would block the batch forever.
+        markApplied(PendingKind.TRASH, direct.applied + direct.vanished)
 
-            // Step 2: one system dialog for everything the OS would not let us touch.
-            //
-            // Capped so a queue that grew unusually large — a backlog carried over from
-            // an older build, say — cannot hand the platform a dialog with thousands of
-            // thumbnails in it. Anything over the cap simply stays queued and is offered
-            // on the next flush. Normal operation never comes near this.
-            val consentTargets = direct.needsConsent.take(MAX_CONSENT_BATCH)
-            val mediaIds = consentTargets.map { it.mediaId }
-            val uris = consentTargets.map { it.uri }
-            val intentSender = try {
-                when (kind) {
-                    PendingKind.TRASH -> mediaStore.trashConsentRequest(uris)
-                    PendingKind.FAVORITE -> mediaStore.writeConsentRequest(uris)
-                }
-            } catch (e: RuntimeException) {
-                Log.w(TAG, "Could not build a $kind request", e)
-                return@withLock FlushResult.Failed(kind, e)
-            }
-
-            FlushResult.ConsentRequired(
-                kind = kind,
-                intentSender = intentSender,
-                mediaIds = mediaIds,
-                bytes = mediaIds.sumOf { bytesById[it] ?: 0L },
+        if (direct.needsConsent.isEmpty()) {
+            return FlushResult.Completed(
+                kind = PendingKind.TRASH,
+                count = direct.applied.size,
+                bytes = direct.applied.sumOf { bytesById[it] ?: 0L },
             )
         }
+
+        return requestConsent(PendingKind.TRASH, direct.needsConsent, bytesById)
+    }
+
+    /**
+     * Gets every queued favourite into [FavoritesAlbum], by whichever route works, and
+     * counts only what verifiably arrived.
+     *
+     * 1. **Look first.** Photos already in the album are done — no write, no dialog.
+     * 2. **Copy what cannot be moved.** Photos in another app's media area (WhatsApp's
+     *    pictures, for one) cannot be moved out by this app. They are copied instead,
+     *    which needs no dialog and leaves them working in the chat they came from.
+     * 3. **Move the rest**, directly where allowed, otherwise after one consent dialog.
+     * 4. **Look again.** Anything MediaStore claimed to move but did not is copied too.
+     */
+    private suspend fun flushFavoritesLocked(): FlushResult {
+        val pending = dao.pendingFavorites()
+        if (pending.isEmpty()) return FlushResult.Nothing
+
+        val located = mediaStore.locate(pending.map { it.mediaId })
+        val tally = FavoriteTally()
+        val toMove = mutableListOf<WriteTarget>()
+
+        for (row in pending) {
+            val path = located[row.mediaId]
+            when {
+                path == null -> tally.gone += row.mediaId
+                FavoritesAlbum.contains(path) -> tally.inAlbum += row.mediaId
+                FavoritesAlbum.isUnmovable(path) -> copyInto(tally, row.mediaId)
+                else -> toMove += WriteTarget(row.mediaId, row.contentUri.toUri())
+            }
+        }
+
+        val direct = try {
+            mediaStore.applyFavorite(toMove)
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "Direct favourite move failed", e)
+            null
+        }
+        if (direct != null) verifyMoves(tally, direct.applied + direct.vanished)
+        commit(tally)
+
+        val needsConsent = direct?.needsConsent.orEmpty()
+        if (needsConsent.isEmpty()) {
+            return FlushResult.Completed(
+                kind = PendingKind.FAVORITE,
+                count = tally.done.count,
+                bytes = 0L,
+                copies = tally.done.copies,
+            )
+        }
+
+        return requestConsent(
+            kind = PendingKind.FAVORITE,
+            targets = needsConsent,
+            bytesById = emptyMap(),
+            alreadyDone = tally.done,
+        )
+    }
+
+    /**
+     * One system dialog for everything the OS would not let us touch directly.
+     *
+     * Capped so a queue that grew unusually large — a backlog carried over from an older
+     * build, say — cannot hand the platform a dialog with thousands of thumbnails in it.
+     * Anything over the cap simply stays queued and is offered on the next flush.
+     */
+    private fun requestConsent(
+        kind: PendingKind,
+        targets: List<WriteTarget>,
+        bytesById: Map<Long, Long>,
+        alreadyDone: Applied = Applied(0),
+    ): FlushResult {
+        val consentTargets = targets.take(MAX_CONSENT_BATCH)
+        val mediaIds = consentTargets.map { it.mediaId }
+        val uris = consentTargets.map { it.uri }
+        val intentSender = try {
+            when (kind) {
+                PendingKind.TRASH -> mediaStore.trashConsentRequest(uris)
+                PendingKind.FAVORITE -> mediaStore.writeConsentRequest(uris)
+            }
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "Could not build a $kind request", e)
+            return FlushResult.Failed(kind, e)
+        }
+
+        return FlushResult.ConsentRequired(
+            kind = kind,
+            intentSender = intentSender,
+            mediaIds = mediaIds,
+            bytes = mediaIds.sumOf { bytesById[it] ?: 0L },
+            alreadyDone = alreadyDone,
+        )
     }
 
     /**
@@ -257,42 +329,99 @@ class PhotoRepositoryImpl @Inject constructor(
      * - **Trash** — the platform performed the trashing itself before returning, so
      *   there is only bookkeeping left.
      * - **Favourite** — a write request only *grants* access. Nothing has moved yet;
-     *   the move is ours to make, now, while the grant is fresh. Marking the rows
-     *   applied without doing it would report success for photos still sitting in the
-     *   camera folder.
+     *   the move is ours to make, now, while the grant is fresh. And even then the
+     *   photos are located afterwards, because MediaStore can report a move it did not
+     *   make. Whatever still sits outside the album is copied in.
      *
-     * @return how many photos the write actually reached.
+     * @return how many photos verifiably arrived.
      */
-    override suspend fun confirmApplied(kind: PendingKind, mediaIds: List<Long>): Int {
-        if (mediaIds.isEmpty()) return 0
+    override suspend fun confirmApplied(kind: PendingKind, mediaIds: List<Long>): Applied {
+        if (mediaIds.isEmpty()) return Applied(0)
         return withContext(io) {
             when (kind) {
                 PendingKind.TRASH -> {
                     markApplied(kind, mediaIds)
-                    mediaIds.size
+                    Applied(mediaIds.size)
                 }
 
                 PendingKind.FAVORITE -> writeLock.withLock {
                     val targets = mediaIds.map { WriteTarget(it, mediaStore.contentUri(it)) }
-                    val result = try {
+                    try {
                         mediaStore.applyFavorite(targets)
                     } catch (e: RuntimeException) {
+                        // Not final: every photo is located below and copied if needed.
                         Log.w(TAG, "Favourite move failed after consent", e)
-                        return@withLock 0
                     }
-                    // Anything still refused stays queued and is offered again next time.
-                    markApplied(kind, result.applied + result.vanished)
-                    result.applied.size
+                    val tally = FavoriteTally()
+                    verifyMoves(tally, mediaIds)
+                    commit(tally)
+                    tally.done
                 }
             }
         }
     }
 
-    private fun writeDirectly(kind: PendingKind, targets: List<WriteTarget>): DirectWriteResult =
-        when (kind) {
-            PendingKind.TRASH -> mediaStore.applyTrash(targets)
-            PendingKind.FAVORITE -> mediaStore.applyFavorite(targets)
+    /** What happened to each favourite in one pass. */
+    private class FavoriteTally {
+        val inAlbum = mutableListOf<Long>()
+        val gone = mutableListOf<Long>()
+
+        /** Original id to the id of its copy in the album. */
+        val copied = mutableListOf<Pair<Long, Long>>()
+
+        val settled: List<Long> get() = inAlbum + gone + copied.map { it.first }
+        val done: Applied get() = Applied(count = inAlbum.size + copied.size, copies = copied.size)
+    }
+
+    /**
+     * Judges attempted moves by where the photos are now, not by what the update
+     * returned. MediaStore reports success for moves it silently refuses.
+     */
+    private fun verifyMoves(tally: FavoriteTally, attempted: List<Long>) {
+        if (attempted.isEmpty()) return
+        val located = mediaStore.locate(attempted)
+        for (id in attempted) {
+            val path = located[id]
+            when {
+                path == null -> tally.gone += id
+                FavoritesAlbum.contains(path) -> tally.inAlbum += id
+                else -> copyInto(tally, id)
+            }
         }
+    }
+
+    /** A failed copy leaves the favourite queued, to be tried again next time. */
+    private fun copyInto(tally: FavoriteTally, id: Long) {
+        mediaStore.copyIntoFavorites(id)?.let { copyId -> tally.copied += id to copyId }
+    }
+
+    /**
+     * Records the outcome. Copies get a history row of their own: they are new photos
+     * with new ids, and without one the deck would deal the user's own favourite back to
+     * them as an undecided card.
+     */
+    private suspend fun commit(tally: FavoriteTally) {
+        markApplied(PendingKind.FAVORITE, tally.settled)
+        if (tally.copied.isEmpty()) return
+
+        val sizes = dao.byIds(tally.copied.map { it.first }).associate { it.mediaId to it.sizeBytes }
+        val now = System.currentTimeMillis()
+        tally.copied.forEach { (original, copy) ->
+            dao.upsert(
+                PhotoDecisionEntity(
+                    mediaId = copy,
+                    contentUri = mediaStore.contentUri(copy).toString(),
+                    decision = Decision.FAVORITE.name,
+                    sizeBytes = sizes[original] ?: 0L,
+                    decidedAt = now,
+                    trashApplied = false,
+                    favoriteApplied = true,
+                    copyOf = original,
+                )
+            )
+        }
+        stateLock.withLock { decidedIdsLocked().addAll(tally.copied.map { it.second }) }
+    }
 
     private suspend fun markApplied(kind: PendingKind, mediaIds: List<Long>) {
         if (mediaIds.isEmpty()) return

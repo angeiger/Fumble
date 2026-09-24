@@ -20,6 +20,9 @@ interface PhotoDecisionDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(decision: PhotoDecisionEntity)
 
+    @Query("SELECT * FROM photo_decision WHERE media_id IN (:mediaIds)")
+    suspend fun byIds(mediaIds: List<Long>): List<PhotoDecisionEntity>
+
     /** Used by undo: forgetting a photo puts it back into the pool. */
     @Query("DELETE FROM photo_decision WHERE media_id = :mediaId")
     suspend fun forget(mediaId: Long)
@@ -72,6 +75,7 @@ interface PhotoDecisionDao {
 
     // --- Stats -------------------------------------------------------------
 
+    /** Swipes only: album copies of favourites have rows too, but were never swiped. */
     @Query(
         """
         SELECT
@@ -81,6 +85,7 @@ interface PhotoDecisionDao {
             COALESCE(SUM(CASE WHEN decision = 'TRASH' AND trash_applied = 1
                               THEN size_bytes ELSE 0 END), 0) AS freed_bytes
         FROM photo_decision
+        WHERE copy_of IS NULL
         """
     )
     fun observeStats(): Flow<StatsProjection>

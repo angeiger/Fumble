@@ -67,5 +67,6 @@
     <!-- Messages -->
     <string name="msg_trash_declined">Nothing was changed</string>
     <string name="msg_trash_failed">Could not reach the gallery right now</string>
-    <string name="msg_favorited">%1$d moved to the Fumble Favoriten album</string>
+    <string name="msg_favorited">%1$d added to the Fumble Favoriten album</string>
+    <string name="msg_favorited_copies">%1$d added to the Fumble Favoriten album, %2$d of them as copies</string>
 </resources>

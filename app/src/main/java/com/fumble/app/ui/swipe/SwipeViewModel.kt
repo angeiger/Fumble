@@ -7,6 +7,7 @@ import com.fumble.app.domain.model.Album
 import com.fumble.app.domain.model.AlbumScope
 import com.fumble.app.domain.model.Photo
 import com.fumble.app.domain.model.SwipeDirection
+import com.fumble.app.domain.repository.Applied
 import com.fumble.app.domain.repository.FlushResult
 import com.fumble.app.domain.repository.PendingKind
 import com.fumble.app.domain.repository.PhotoRepository
@@ -233,6 +234,10 @@ class SwipeViewModel @Inject constructor(
         awaitingConsentIds = emptyList()
         if (kind == null) return
 
+        // Favourites settled in the same pass before the dialog was needed.
+        val alreadyDone = deckState.value.favoritesBeforeConsent
+        deckState.update { it.copy(favoritesBeforeConsent = Applied(0)) }
+
         viewModelScope.launch {
             if (approved) {
                 // For favourites this is where the photos actually move — approval only
@@ -246,18 +251,25 @@ class SwipeViewModel @Inject constructor(
                     // Past this point the platform owns them, so undo is no longer honest.
                     deckState.update { it.copy(undoStack = emptyList()) }
                     _effects.send(
-                        SwipeEffect.Celebrate(photoCount = applied, freedBytes = freed)
+                        SwipeEffect.Celebrate(photoCount = applied.count, freedBytes = freed)
                     )
                 } else {
-                    announceFavorites(applied)
+                    announceFavorites(alreadyDone + applied)
                 }
             } else {
-                // Nothing was written, so the queue and the undo stack both stand.
-                // Buy the user a little room instead of asking again immediately.
+                // Nothing the dialog covered was written, so its queue and the undo
+                // stack both stand. Buy the user a little room instead of asking again
+                // immediately.
                 if (kind == PendingKind.TRASH) {
                     promptPolicy.onDeclined(pendingCount = mediaIds.size)
                 }
-                _effects.send(SwipeEffect.Notice(UiMessage.TrashDeclined))
+                if (alreadyDone.count > 0) {
+                    // Some favourites were copied or found in place before the dialog;
+                    // "nothing was changed" would be untrue.
+                    announceFavorites(alreadyDone)
+                } else {
+                    _effects.send(SwipeEffect.Notice(UiMessage.TrashDeclined))
+                }
             }
 
             // The trash pass deferred the favourites so the two dialogs could not stack.
@@ -273,14 +285,16 @@ class SwipeViewModel @Inject constructor(
     }
 
     /**
-     * Favourites that have left the camera folder can no longer be honestly undone, so
-     * they close the undo horizon exactly as trashing does. A shortfall is reported
-     * rather than hidden: the rest stays queued and is offered again next time.
+     * Favourites that have reached the album can no longer be honestly undone, so they
+     * close the undo horizon exactly as trashing does. A shortfall is reported rather
+     * than hidden: the rest stays queued and is offered again next time.
      */
-    private suspend fun announceFavorites(applied: Int) {
-        if (applied > 0) {
+    private suspend fun announceFavorites(applied: Applied) {
+        if (applied.count > 0) {
             deckState.update { it.copy(undoStack = emptyList()) }
-            _effects.send(SwipeEffect.Notice(UiMessage.Favorited(applied)))
+            _effects.send(
+                SwipeEffect.Notice(UiMessage.Favorited(applied.count, applied.copies))
+            )
         } else {
             _effects.send(SwipeEffect.Notice(UiMessage.TrashFailed))
         }
@@ -385,7 +399,7 @@ class SwipeViewModel @Inject constructor(
                         _effects.send(SwipeEffect.Celebrate(result.count, result.bytes))
                     }
                 } else if (result.count > 0) {
-                    announceFavorites(result.count)
+                    announceFavorites(Applied(result.count, result.copies))
                 }
             }
 
@@ -395,7 +409,12 @@ class SwipeViewModel @Inject constructor(
                 awaitingConsentIds = result.mediaIds
                 // The undo stack is *not* cleared here. Nothing has been written yet,
                 // and the user may still dismiss the dialog.
-                deckState.update { it.copy(lastConsentBytes = result.bytes) }
+                deckState.update {
+                    it.copy(
+                        lastConsentBytes = result.bytes,
+                        favoritesBeforeConsent = result.alreadyDone,
+                    )
+                }
                 _effects.send(SwipeEffect.RequestConsent(result.intentSender))
                 return Outcome.AWAITING_CONSENT
             }
@@ -430,6 +449,11 @@ class SwipeViewModel @Inject constructor(
         val undoStack: List<Photo> = emptyList(),
         /** Byte total of the batch currently sitting in a consent dialog. */
         val lastConsentBytes: Long = 0L,
+        /**
+         * Favourites the pass that raised the current dialog had already settled — found
+         * in the album or copied — so the final message can count them too.
+         */
+        val favoritesBeforeConsent: Applied = Applied(0),
     )
 
     private companion object {

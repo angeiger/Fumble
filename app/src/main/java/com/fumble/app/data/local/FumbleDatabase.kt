@@ -7,7 +7,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [PhotoDecisionEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class FumbleDatabase : RoomDatabase() {
@@ -50,6 +50,27 @@ abstract class FumbleDatabase : RoomDatabase() {
          */
         val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "UPDATE photo_decision SET favorite_applied = 0 " +
+                        "WHERE decision = 'FAVORITE'"
+                )
+            }
+        }
+
+        /**
+         * Adds the column that marks album copies, and re-queues every favourite once
+         * more.
+         *
+         * 4.1.0 trusted MediaStore's word that a move had happened. For photos in
+         * another app's media area — every WhatsApp picture — it had not: the album
+         * stayed empty while the rows were marked done. From 4.1.1 each favourite is
+         * located before and after the move and copied where it cannot be moved, so
+         * running them all through again settles them for real. Ones already in the
+         * album are recognised and cost nothing.
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE photo_decision ADD COLUMN copy_of INTEGER")
                 db.execSQL(
                     "UPDATE photo_decision SET favorite_applied = 0 " +
                         "WHERE decision = 'FAVORITE'"
