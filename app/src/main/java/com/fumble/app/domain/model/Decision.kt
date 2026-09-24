@@ -9,9 +9,10 @@ enum class Decision {
     TRASH,
 
     /**
-     * Swiped up. A keep that also gets `MediaStore.MediaColumns.IS_FAVORITE = 1`, so
-     * the photo resurfaces in the gallery's own Favourites album instead of being
-     * forgotten again the moment the card leaves the screen.
+     * Swiped up. A keep that is also moved into the *Fumble Favoriten* album, so the
+     * photo resurfaces somewhere findable instead of being forgotten again the moment
+     * the card leaves the screen. Android's own favourite flag is set too, but on its
+     * own it proved invisible in Google Photos.
      */
     FAVORITE,
 }

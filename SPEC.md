@@ -1,6 +1,6 @@
 # Fumble — product specification
 
-*Version 4.0.0 · written as a hand-off document so the app can be rebuilt on another
+*Version 4.1.0 · written as a hand-off document so the app can be rebuilt on another
 platform without reading the Android source.*
 
 This describes **what Fumble is and why it behaves the way it does**, not how the Kotlin
@@ -19,7 +19,7 @@ card, and swipes to decide:
 | --- | --- | --- |
 | **Right** | Keep | Nothing happens to the photo. It is only recorded as decided. |
 | **Left** | Trash | Queued for deletion into the OS trash. |
-| **Up** | Favourite | Kept **and** marked as a favourite in the OS photo library. |
+| **Up** | Favourite | Kept **and** moved into a *Fumble Favoriten* album (see §5.7). |
 
 The point is to make clearing out a gallery fast and low-stakes. Nothing is ever deleted
 permanently by the app: everything goes to the operating system's own trash, which
@@ -141,7 +141,7 @@ default is wrong.
 2. **"Look"** — the four palettes, each as a row with a miniature swatch (ground, card,
    accent), the name, and a dot on the active one.
 
-Footer: `Fumble 4.0.0 · Foto Bumble`.
+Footer: `Fumble 4.1.0 · Foto Bumble`.
 
 ### 3.5 Celebration
 
@@ -325,6 +325,48 @@ If both queues have content, applying raises the trash confirmation first and th
 favourite confirmation only once that answer is in. Neither platform offers a combined
 request, and stacking two system sheets is worse than showing them in order.
 
+### 5.7 What a favourite actually does ⚠ Learned the hard way
+
+A favourite must end up **somewhere the user will actually look.** That rules out the
+obvious implementation.
+
+Version 4.0.0 set the operating system's own favourite flag (`IS_FAVORITE` on Android).
+Everything reported success — Android even approved the request without showing a
+dialog — and the feature was useless: **Google Photos, the gallery most Android users
+open, does not show that flag.** Favourited photos appeared in no favourites view anyone
+could find. The bug was only discovered after extensive real use, because nothing on
+screen said anything was wrong.
+
+Google Photos' own favourites cannot be written from outside. No API does it, and the
+nearest ones need network access, which this app refuses on principle.
+
+So from 4.1.0 a favourite is **moved into its own folder**, `Pictures/Fumble Favoriten/`,
+which every gallery shows as an album — in Google Photos under *Collections → On this
+device*. The OS flag is still set alongside for apps that honour it.
+
+- **Move, never copy.** A copy costs storage, which is the opposite of what this app is
+  for. Moving rewrites the path of the existing library entry: same identifier, same
+  file, no duplicate, and the decision history stays valid.
+- ⚠ **On Android, approval of the write request only grants access.** Unlike a trash
+  request, the system changes nothing itself; the app must perform the move afterwards,
+  while the grant is fresh, and count how many actually moved. Marking the batch done on
+  approval alone reports success for photos still in the camera folder.
+- If a move fails for any reason other than permission — most plausibly a file of the
+  same name already in the folder — flag the photo without moving it rather than
+  retrying forever.
+- Folders other than the camera folder are **not backed up by Google Photos by
+  default**. Tell the user once to enable backup for the album; photos already backed up
+  stay backed up wherever they live locally.
+- When the mechanism changed, every earlier favourite was put back in the queue (a
+  data-only database migration), so photos favourited under the old behaviour moved too
+  instead of staying stranded.
+- Favourites that have been moved close the undo horizon exactly as trashing does.
+
+**Ported to iOS**, the equivalent is not `isFavorite` either unless Apple's own Photos app
+is the gallery the user lives in — there it does show up. Decide by where the user looks,
+not by which API exists. An album (`PHAssetCollectionChangeRequest`) is the portable
+answer, and on iOS it adds the asset to the album rather than moving any file.
+
 ---
 
 ## 6. The card stack
@@ -468,7 +510,7 @@ The concept maps well; none of the code does.
 | `MediaStore` query | `PHAsset.fetchAssets` via PhotoKit |
 | `MediaStore._ID` | `PHAsset.localIdentifier` |
 | `IS_TRASHED = 1` | `PHAssetChangeRequest.deleteAssets` → *Recently Deleted*, also 30 days |
-| `IS_FAVORITE = 1` | `PHAssetChangeRequest.isFavorite = true` |
+| Favourite → move into `Pictures/Fumble Favoriten/` | Add to a *Fumble Favoriten* album via `PHAssetCollectionChangeRequest` (§5.7) |
 | `createTrashRequest` consent dialog | The system confirmation shown for `performChanges` on assets the app does not own |
 | Album `BUCKET_ID` | `PHAssetCollection` |
 | Partial photo access (Android 14+) | Limited Photo Library access |
@@ -491,7 +533,7 @@ sideloading an APK.
 
 ## 10. Mistakes worth not repeating
 
-Collected from four releases of real use.
+Collected from five releases of real use.
 
 1. **Trigger from durable state, not from memory.** The threshold counter in memory
    silently stopped working the moment the OS reclaimed the app. Two weeks before anyone
@@ -508,3 +550,8 @@ Collected from four releases of real use.
 7. **Hold consent state outside the view layer**, or an app restart behind the system
    dialog loses track of what was approved.
 8. **Fit photos, do not crop them.** The user is judging the whole image.
+9. **Test a feature where the user looks, not where the API reports.** Favourites
+   "succeeded" for a whole release while appearing nowhere the user could find them —
+   every call returned OK. (§5.7)
+10. **Know what a consent actually does.** A trash request performs the change; a write
+    request only grants access. Treating one like the other reports success for nothing.

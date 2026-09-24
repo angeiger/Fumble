@@ -235,7 +235,10 @@ class SwipeViewModel @Inject constructor(
 
         viewModelScope.launch {
             if (approved) {
-                repository.confirmApplied(kind, mediaIds)
+                // For favourites this is where the photos actually move — approval only
+                // granted access — so the count that comes back is the truth, not the
+                // number that was asked about.
+                val applied = repository.confirmApplied(kind, mediaIds)
 
                 if (kind == PendingKind.TRASH) {
                     promptPolicy.onSettled()
@@ -243,10 +246,10 @@ class SwipeViewModel @Inject constructor(
                     // Past this point the platform owns them, so undo is no longer honest.
                     deckState.update { it.copy(undoStack = emptyList()) }
                     _effects.send(
-                        SwipeEffect.Celebrate(photoCount = mediaIds.size, freedBytes = freed)
+                        SwipeEffect.Celebrate(photoCount = applied, freedBytes = freed)
                     )
                 } else {
-                    _effects.send(SwipeEffect.Notice(UiMessage.Favorited(mediaIds.size)))
+                    announceFavorites(applied)
                 }
             } else {
                 // Nothing was written, so the queue and the undo stack both stand.
@@ -266,6 +269,20 @@ class SwipeViewModel @Inject constructor(
                     flushing = false
                 }
             }
+        }
+    }
+
+    /**
+     * Favourites that have left the camera folder can no longer be honestly undone, so
+     * they close the undo horizon exactly as trashing does. A shortfall is reported
+     * rather than hidden: the rest stays queued and is offered again next time.
+     */
+    private suspend fun announceFavorites(applied: Int) {
+        if (applied > 0) {
+            deckState.update { it.copy(undoStack = emptyList()) }
+            _effects.send(SwipeEffect.Notice(UiMessage.Favorited(applied)))
+        } else {
+            _effects.send(SwipeEffect.Notice(UiMessage.TrashFailed))
         }
     }
 
@@ -367,6 +384,8 @@ class SwipeViewModel @Inject constructor(
                     if (result.count > 0) {
                         _effects.send(SwipeEffect.Celebrate(result.count, result.bytes))
                     }
+                } else if (result.count > 0) {
+                    announceFavorites(result.count)
                 }
             }
 
@@ -384,7 +403,13 @@ class SwipeViewModel @Inject constructor(
             is FlushResult.Failed -> {
                 // Back off so a broken volume does not retry on every swipe.
                 if (kind == PendingKind.TRASH) promptPolicy.onFailed()
-                if (userInitiated) _effects.send(SwipeEffect.Notice(UiMessage.TrashFailed))
+                // An automatic trash attempt may fail quietly and try again later. A
+                // favourite failure is always reported: it used to run only as the
+                // tail of the trash dialog, where a silent failure left photos queued
+                // indefinitely with nothing on screen to say so.
+                if (userInitiated || kind == PendingKind.FAVORITE) {
+                    _effects.send(SwipeEffect.Notice(UiMessage.TrashFailed))
+                }
             }
         }
         return Outcome.SETTLED

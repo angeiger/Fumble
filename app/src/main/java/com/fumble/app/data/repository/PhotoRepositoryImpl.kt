@@ -7,7 +7,8 @@ import com.fumble.app.data.local.PhotoDecisionEntity
 import com.fumble.app.data.local.AppPreferences
 import com.fumble.app.data.media.MediaIndex
 import com.fumble.app.data.media.MediaStoreDataSource
-import com.fumble.app.data.media.TrashTarget
+import com.fumble.app.data.media.DirectWriteResult
+import com.fumble.app.data.media.WriteTarget
 import com.fumble.app.di.IoDispatcher
 import com.fumble.app.domain.model.Album
 import com.fumble.app.domain.model.AlbumScope
@@ -184,9 +185,10 @@ class PhotoRepositoryImpl @Inject constructor(
     /**
      * Settles one queue.
      *
-     * Trashing and favouriting are the same shape of problem — a MediaStore flag the
-     * app may write for its own media and must ask about for everyone else's — so they
-     * share one path rather than two that would drift apart.
+     * Trashing and favouriting are the same shape of problem — a MediaStore write the
+     * app may make for its own media and must ask about for everyone else's — so they
+     * share one path rather than two that would drift apart. They differ only in what
+     * approval means, which [confirmApplied] deals with.
      */
     override suspend fun flush(kind: PendingKind): FlushResult = withContext(io) {
         writeLock.withLock {
@@ -197,14 +199,11 @@ class PhotoRepositoryImpl @Inject constructor(
             if (pending.isEmpty()) return@withLock FlushResult.Nothing
 
             val bytesById = pending.associate { it.mediaId to it.sizeBytes }
-            val targets = pending.map { TrashTarget(it.mediaId, it.contentUri.toUri()) }
+            val targets = pending.map { WriteTarget(it.mediaId, it.contentUri.toUri()) }
 
             // Step 1: try the direct write. Free and silent for media this app owns.
             val direct = try {
-                when (kind) {
-                    PendingKind.TRASH -> mediaStore.applyTrash(targets)
-                    PendingKind.FAVORITE -> mediaStore.applyFavorite(targets)
-                }
+                writeDirectly(kind, targets)
             } catch (e: RuntimeException) {
                 Log.w(TAG, "Direct $kind write failed", e)
                 return@withLock FlushResult.Failed(kind, e)
@@ -212,13 +211,13 @@ class PhotoRepositoryImpl @Inject constructor(
 
             // Photos that vanished from MediaStore are settled too: there is nothing
             // left to write, and leaving them queued would block the batch forever.
-            markApplied(kind, direct.trashed + direct.vanished)
+            markApplied(kind, direct.applied + direct.vanished)
 
             if (direct.needsConsent.isEmpty()) {
                 return@withLock FlushResult.Completed(
                     kind = kind,
-                    count = direct.trashed.size,
-                    bytes = direct.trashed.sumOf { bytesById[it] ?: 0L },
+                    count = direct.applied.size,
+                    bytes = direct.applied.sumOf { bytesById[it] ?: 0L },
                 )
             }
 
@@ -234,7 +233,7 @@ class PhotoRepositoryImpl @Inject constructor(
             val intentSender = try {
                 when (kind) {
                     PendingKind.TRASH -> mediaStore.trashConsentRequest(uris)
-                    PendingKind.FAVORITE -> mediaStore.favoriteConsentRequest(uris)
+                    PendingKind.FAVORITE -> mediaStore.writeConsentRequest(uris)
                 }
             } catch (e: RuntimeException) {
                 Log.w(TAG, "Could not build a $kind request", e)
@@ -250,10 +249,50 @@ class PhotoRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun confirmApplied(kind: PendingKind, mediaIds: List<Long>) {
-        if (mediaIds.isEmpty()) return
-        withContext(io) { markApplied(kind, mediaIds) }
+    /**
+     * The user approved a consent dialog for [mediaIds].
+     *
+     * What that means differs per queue, and getting it wrong is silent:
+     *
+     * - **Trash** — the platform performed the trashing itself before returning, so
+     *   there is only bookkeeping left.
+     * - **Favourite** — a write request only *grants* access. Nothing has moved yet;
+     *   the move is ours to make, now, while the grant is fresh. Marking the rows
+     *   applied without doing it would report success for photos still sitting in the
+     *   camera folder.
+     *
+     * @return how many photos the write actually reached.
+     */
+    override suspend fun confirmApplied(kind: PendingKind, mediaIds: List<Long>): Int {
+        if (mediaIds.isEmpty()) return 0
+        return withContext(io) {
+            when (kind) {
+                PendingKind.TRASH -> {
+                    markApplied(kind, mediaIds)
+                    mediaIds.size
+                }
+
+                PendingKind.FAVORITE -> writeLock.withLock {
+                    val targets = mediaIds.map { WriteTarget(it, mediaStore.contentUri(it)) }
+                    val result = try {
+                        mediaStore.applyFavorite(targets)
+                    } catch (e: RuntimeException) {
+                        Log.w(TAG, "Favourite move failed after consent", e)
+                        return@withLock 0
+                    }
+                    // Anything still refused stays queued and is offered again next time.
+                    markApplied(kind, result.applied + result.vanished)
+                    result.applied.size
+                }
+            }
+        }
     }
+
+    private fun writeDirectly(kind: PendingKind, targets: List<WriteTarget>): DirectWriteResult =
+        when (kind) {
+            PendingKind.TRASH -> mediaStore.applyTrash(targets)
+            PendingKind.FAVORITE -> mediaStore.applyFavorite(targets)
+        }
 
     private suspend fun markApplied(kind: PendingKind, mediaIds: List<Long>) {
         if (mediaIds.isEmpty()) return

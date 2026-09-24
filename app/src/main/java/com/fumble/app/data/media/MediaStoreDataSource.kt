@@ -8,6 +8,7 @@ import android.content.IntentSender
 import android.database.Cursor
 import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
 import com.fumble.app.domain.model.Photo
@@ -15,8 +16,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** A photo that still needs `IS_TRASHED` flipped, paired with the uri to act on. */
-data class TrashTarget(val mediaId: Long, val uri: Uri)
+/** A photo awaiting a deferred MediaStore write, paired with the uri to act on. */
+data class WriteTarget(val mediaId: Long, val uri: Uri)
 
 /** One image reduced to what dealing and album filtering need. */
 data class MediaEntry(val id: Long, val bucketId: Long)
@@ -28,15 +29,15 @@ data class MediaIndex(
 )
 
 /**
- * Outcome of trying to trash a batch directly through [ContentResolver.update].
+ * Outcome of trying to write a batch directly through [ContentResolver.update].
  *
- * @property trashed We owned these (or already held the grant); they are in the trash now.
- * @property needsConsent The OS refused; the user must approve them via a trash request.
+ * @property applied The write landed — we owned these, or already held the grant.
+ * @property needsConsent The OS refused; the user must approve them first.
  * @property vanished No longer in MediaStore at all. Nothing left to do, stop tracking them.
  */
-data class DirectTrashResult(
-    val trashed: List<Long>,
-    val needsConsent: List<TrashTarget>,
+data class DirectWriteResult(
+    val applied: List<Long>,
+    val needsConsent: List<WriteTarget>,
     val vanished: List<Long>,
 )
 
@@ -172,27 +173,50 @@ class MediaStoreDataSource @Inject constructor(
      * which in practice is almost every photo, since the camera app owns them — the
      * platform throws and the caller has to fall back to [trashConsentRequest].
      */
-    fun applyTrash(targets: List<TrashTarget>): DirectTrashResult =
-        applyFlag(targets, MediaStore.MediaColumns.IS_TRASHED)
+    fun applyTrash(targets: List<WriteTarget>): DirectWriteResult =
+        applyValues(
+            targets = targets,
+            values = ContentValues(1).apply { put(MediaStore.MediaColumns.IS_TRASHED, 1) },
+        )
 
     /**
-     * Sets `MediaStore.MediaColumns.IS_FAVORITE = 1` on each target, which is what
-     * puts a photo into the gallery's own Favourites album.
+     * Moves each target into the [FAVORITES_ALBUM] folder and marks it `IS_FAVORITE`.
      *
-     * Identical permission story to trashing: silent for owned media, a system dialog
-     * for everything else. That is why favourites are queued rather than written the
-     * instant a card is swiped up.
+     * The move is the part that matters. Android's own favourite flag was the first
+     * design, and it did not work where people look: Google Photos, the gallery most
+     * Android users open, does not show it. Photos favourited that way appeared in no
+     * favourites view the user could find. A folder, by contrast, is something every
+     * gallery shows — in Google Photos under *Collections → On this device*. The flag is
+     * still set alongside, for the apps that do honour it.
+     *
+     * Moving rewrites `RELATIVE_PATH` on the existing row. The file keeps its MediaStore
+     * id, so the decision history stays valid, and nothing is copied or duplicated.
+     *
+     * If the move fails for a reason other than permission — most plausibly a file of
+     * the same name already in the folder — the photo is still marked, just not moved,
+     * rather than being retried forever.
      */
-    fun applyFavorite(targets: List<TrashTarget>): DirectTrashResult =
-        applyFlag(targets, MediaStore.MediaColumns.IS_FAVORITE)
+    fun applyFavorite(targets: List<WriteTarget>): DirectWriteResult =
+        applyValues(
+            targets = targets,
+            values = ContentValues(2).apply {
+                put(MediaStore.MediaColumns.IS_FAVORITE, 1)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, FAVORITES_RELATIVE_PATH)
+            },
+            fallback = ContentValues(1).apply { put(MediaStore.MediaColumns.IS_FAVORITE, 1) },
+        )
 
-    private fun applyFlag(targets: List<TrashTarget>, column: String): DirectTrashResult {
-        val values = ContentValues(1).apply {
-            put(column, 1)
-        }
-
-        val trashed = mutableListOf<Long>()
-        val needsConsent = mutableListOf<TrashTarget>()
+    /**
+     * @param fallback written instead when [values] fails for a reason other than
+     *   permission. Without one, such a failure means the item is treated as gone.
+     */
+    private fun applyValues(
+        targets: List<WriteTarget>,
+        values: ContentValues,
+        fallback: ContentValues? = null,
+    ): DirectWriteResult {
+        val applied = mutableListOf<Long>()
+        val needsConsent = mutableListOf<WriteTarget>()
         val vanished = mutableListOf<Long>()
 
         // Each refused write costs a binder round trip, and a gallery is overwhelmingly
@@ -207,38 +231,59 @@ class MediaStoreDataSource @Inject constructor(
                 needsConsent += target
                 continue
             }
-            try {
-                val rows = resolver.update(target.uri, values, null, null)
-                when {
-                    rows > 0 -> {
-                        trashed += target.mediaId
-                        consecutiveRefusals = 0
-                    }
-                    // Zero rows without an exception is ambiguous. If the row is still
-                    // there, treat it as a write we are not allowed to make and ask.
-                    exists(target.uri) -> needsConsent += target
-                    else -> vanished += target.mediaId
+            when (write(target.uri, values, fallback)) {
+                WriteOutcome.APPLIED -> {
+                    applied += target.mediaId
+                    consecutiveRefusals = 0
                 }
-            } catch (e: SecurityException) {
-                // RecoverableSecurityException (API 29) or a plain SecurityException
-                // (API 30+): we do not own this item, so the user has to approve it.
-                needsConsent += target
-                consecutiveRefusals++
-            } catch (e: IllegalArgumentException) {
-                // Row or volume is gone, e.g. the SD card was ejected.
-                Log.d(TAG, "Dropping unreachable media ${target.mediaId}", e)
-                vanished += target.mediaId
-            } catch (e: IllegalStateException) {
-                Log.d(TAG, "Dropping unreachable media ${target.mediaId}", e)
-                vanished += target.mediaId
+
+                WriteOutcome.REFUSED -> {
+                    needsConsent += target
+                    consecutiveRefusals++
+                }
+
+                WriteOutcome.GONE -> vanished += target.mediaId
             }
         }
 
-        return DirectTrashResult(
-            trashed = trashed,
+        return DirectWriteResult(
+            applied = applied,
             needsConsent = needsConsent,
             vanished = vanished,
         )
+    }
+
+    private enum class WriteOutcome { APPLIED, REFUSED, GONE }
+
+    private fun write(uri: Uri, values: ContentValues, fallback: ContentValues?): WriteOutcome =
+        try {
+            val rows = resolver.update(uri, values, null, null)
+            when {
+                rows > 0 -> WriteOutcome.APPLIED
+                // Zero rows without an exception is ambiguous. If the row is still
+                // there, treat it as a write we are not allowed to make and ask.
+                exists(uri) -> WriteOutcome.REFUSED
+                else -> WriteOutcome.GONE
+            }
+        } catch (e: SecurityException) {
+            // RecoverableSecurityException (API 29) or a plain SecurityException
+            // (API 30+): we do not own this item, so the user has to approve it.
+            WriteOutcome.REFUSED
+        } catch (e: IllegalArgumentException) {
+            recover(uri, fallback, e)
+        } catch (e: IllegalStateException) {
+            recover(uri, fallback, e)
+        }
+
+    /** The write failed for a reason other than permission. */
+    private fun recover(uri: Uri, fallback: ContentValues?, cause: Exception): WriteOutcome {
+        if (fallback != null && exists(uri)) {
+            Log.w(TAG, "Write failed for $uri, retrying with the fallback", cause)
+            return write(uri, fallback, fallback = null)
+        }
+        // Row or volume is gone, e.g. the SD card was ejected.
+        Log.d(TAG, "Dropping unreachable media $uri", cause)
+        return WriteOutcome.GONE
     }
 
     /**
@@ -252,10 +297,16 @@ class MediaStoreDataSource @Inject constructor(
         return MediaStore.createTrashRequest(resolver, uris, /* value = */ true).intentSender
     }
 
-    /** The favourite equivalent of [trashConsentRequest]: one dialog for the batch. */
-    fun favoriteConsentRequest(uris: List<Uri>): IntentSender {
-        require(uris.isNotEmpty()) { "favoriteConsentRequest called with no uris" }
-        return MediaStore.createFavoriteRequest(resolver, uris, /* value = */ true).intentSender
+    /**
+     * One system dialog granting write access to [uris].
+     *
+     * Unlike [trashConsentRequest], approval changes nothing by itself. It only grants
+     * access; the caller must then perform the write — here, moving the photos — while
+     * the grant is fresh.
+     */
+    fun writeConsentRequest(uris: List<Uri>): IntentSender {
+        require(uris.isNotEmpty()) { "writeConsentRequest called with no uris" }
+        return MediaStore.createWriteRequest(resolver, uris).intentSender
     }
 
     fun contentUri(mediaId: Long): Uri = ContentUris.withAppendedId(collection, mediaId)
@@ -291,5 +342,13 @@ class MediaStoreDataSource @Inject constructor(
 
         /** Bucket assigned to images MediaStore reports without a parent folder. */
         const val UNKNOWN_BUCKET_ID = Long.MIN_VALUE
+
+        /**
+         * Where favourites are moved. Under `Pictures/`, the conventional home for images
+         * an app organises, rather than `DCIM/`, which galleries treat as camera output.
+         */
+        const val FAVORITES_ALBUM = "Fumble Favoriten"
+        private val FAVORITES_RELATIVE_PATH =
+            "${Environment.DIRECTORY_PICTURES}/$FAVORITES_ALBUM/"
     }
 }

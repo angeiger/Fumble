@@ -21,7 +21,7 @@ object DataModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): FumbleDatabase =
         Room.databaseBuilder(context, FumbleDatabase::class.java, FumbleDatabase.NAME)
-            .addMigrations(FumbleDatabase.MIGRATION_1_2)
+            .addMigrations(FumbleDatabase.MIGRATION_1_2, FumbleDatabase.MIGRATION_2_3)
             // Last resort only. Every schema change should ship a real migration —
             // losing the history means showing the user every kept photo again.
             .fallbackToDestructiveMigration()

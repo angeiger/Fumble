@@ -106,8 +106,13 @@ interface PhotoRepository {
     /** Attempts the queued writes of [kind]. Safe to call when the queue is empty. */
     suspend fun flush(kind: PendingKind): FlushResult
 
-    /** The user approved a [FlushResult.ConsentRequired] batch. */
-    suspend fun confirmApplied(kind: PendingKind, mediaIds: List<Long>)
+    /**
+     * The user approved a [FlushResult.ConsentRequired] batch. For favourites this is
+     * where the photos are actually moved, since approval only grants access.
+     *
+     * @return how many photos the write actually reached. Any shortfall stays queued.
+     */
+    suspend fun confirmApplied(kind: PendingKind, mediaIds: List<Long>): Int
 
     /** Clears the whole decision history so every photo can be reviewed again. */
     suspend fun resetHistory()

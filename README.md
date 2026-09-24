@@ -2,8 +2,8 @@
 
 ### Foto Bumble — swipe through your own gallery to clear it out.
 
-Right keeps a photo, left sends it to the Android system trash, **up marks it as a
-favourite** so a forgotten holiday shot ends up back in your gallery's Favourites album.
+Right keeps a photo, left sends it to the Android system trash, **up moves it into a
+*Fumble Favoriten* album** so a forgotten holiday shot ends up somewhere you will find it.
 Photos come up in random order, optionally narrowed to a single album, and every photo
 is shown exactly once, ever.
 
@@ -122,10 +122,35 @@ kept, so deleting a folder cannot strand the user on a permanent "all caught up"
 A left swipe does *not* immediately touch MediaStore. It records the decision, drops the
 card, and adds the photo to a queue shown as a pill under the header.
 
-**Favouriting works the same way, for the same reason.** `IS_FAVORITE` carries the same
-permission rule as `IS_TRASHED`: writable for media the app owns, a system dialog via
-`createFavoriteRequest` for everything else. Both queues therefore share one settle
-path in the repository rather than two that would drift apart.
+**Favouriting is queued the same way, for the same reason**, and shares one settle path
+in the repository rather than two that would drift apart. What it *writes* changed in
+4.1.0, and the reason is worth knowing:
+
+Up to 4.0.0 a favourite set Android's `IS_FAVORITE` flag through
+`createFavoriteRequest`. It worked — Android approved the request without even showing
+a dialog — and it was useless: **Google Photos does not show that flag.** Favourited
+photos appeared in no favourites view the user could find. Google Photos' own favourites
+cannot be written from outside at all; no API exists, and the ones that come close need
+network access this app deliberately does not have.
+
+So a favourite is now **moved** into `Pictures/Fumble Favoriten/` by rewriting
+`RELATIVE_PATH` — an album every gallery shows, Google Photos under *Collections → On
+this device*. `IS_FAVORITE` is still set alongside for the apps that honour it. The row
+keeps its MediaStore id, so the decision history stays valid, and nothing is copied.
+
+Two consequences shape the code:
+
+- **Moving needs `createWriteRequest`, and that request only grants access.** Unlike
+  a trash request, approval changes nothing by itself; `confirmApplied` performs the
+  move afterwards, while the grant is fresh, and reports how many actually moved.
+  Marking the rows done on approval alone would claim success for photos still sitting
+  in the camera folder.
+- **Database version 3 re-queues every earlier favourite**, so photos favourited under
+  4.0.0 move too instead of staying stranded as the only ones that never arrived.
+
+If a move fails for a reason other than permission — most plausibly a same-named file
+already in the folder — the photo is still flagged, just not moved, rather than retried
+forever.
 
 The platform has no combined request, so a settle that needs consent for both raises
 two dialogs — trash first, favourites only once that answer is in. Stacking them would

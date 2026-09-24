@@ -7,7 +7,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [PhotoDecisionEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class FumbleDatabase : RoomDatabase() {
@@ -33,6 +33,26 @@ abstract class FumbleDatabase : RoomDatabase() {
                 db.execSQL(
                     "ALTER TABLE photo_decision " +
                         "ADD COLUMN favorite_applied INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
+        /**
+         * Re-queues every favourite, without touching the schema.
+         *
+         * Up to 4.0.0 favouriting only set Android's `IS_FAVORITE` flag, which Google
+         * Photos does not show — so those photos were recorded as done while in practice
+         * nothing findable had happened. From 4.1.0 favourites are moved into their own
+         * album. Clearing the flag here lets the next apply move the old ones too,
+         * instead of leaving them stranded as the only favourites that never arrived.
+         *
+         * A data-only migration still needs a version bump, or it would never run.
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "UPDATE photo_decision SET favorite_applied = 0 " +
+                        "WHERE decision = 'FAVORITE'"
                 )
             }
         }

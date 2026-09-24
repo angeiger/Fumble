@@ -51,13 +51,22 @@ Balken weist dich dann darauf hin, und du kannst es jederzeit ändern.
 |---|---|
 | **nach rechts** | Foto bleibt, wie es ist |
 | **nach links** | Foto wandert in den Papierkorb — gesammelt, nicht sofort |
-| **nach oben** | Foto wird als **Favorit** markiert und bleibt erhalten |
+| **nach oben** | Foto wandert ins Album **Fumble Favoriten** und bleibt erhalten |
 
 Für alle drei gibt es unten auch Knöpfe, falls dir das lieber ist.
 
 **Favoriten** sind gedacht für den Fall, dass dir beim Durchgehen ein längst vergessenes
-Bild begegnet, das du wiederfinden willst. Es taucht danach im Favoriten-Album deiner
-Galerie auf — in Google Fotos unter *Sammlungen → Favoriten*.
+Bild begegnet, das du wiederfinden willst. Das Foto wird dafür in einen eigenen Ordner
+verschoben — nicht kopiert, es entsteht also kein Duplikat und kein zusätzlicher
+Speicherverbrauch.
+
+**So findest du sie:** In Google Fotos unter *Sammlungen → Auf diesem Gerät →
+Fumble Favoriten*. In anderen Galerie-Apps erscheint der Ordner als eigenes Album.
+
+> **Einmalig einrichten:** Fotos in eigenen Ordnern sichert Google Fotos nicht
+> automatisch. Öffne dort das Album *Fumble Favoriten* und schalte **Sichern** ein,
+> damit neue Favoriten auch in deiner Cloud landen. Bereits gesicherte Fotos bleiben
+> gesichert, egal in welchem Ordner sie liegen.
 
 ---
 
@@ -65,8 +74,9 @@ Galerie auf — in Google Fotos unter *Sammlungen → Favoriten*.
 
 **Nichts wird sofort verändert.** Links- und Hochwischer sammeln sich an. Erst wenn
 genug zusammen sind — oder du die Pille oben antippst — fragt dein Handy einmal nach.
-Liegt beides an, kommen zwei Abfragen nacheinander: erst der Papierkorb, dann die
-Favoriten. Android erlaubt dafür leider keine gemeinsame Rückfrage.
+Liegt beides an, kommen zwei Abfragen nacheinander: erst *„…in den Papierkorb
+verschieben?"*, dann *„…diese Fotos ändern?"* für die Favoriten. Android erlaubt dafür
+leider keine gemeinsame Rückfrage.
 
 **Alles ist 30 Tage lang wiederherstellbar.** Die Bilder landen im System-Papierkorb,
 nicht im Nirwana. Zu finden unter *Google Fotos → Galerie → Papierkorb* oder in der
