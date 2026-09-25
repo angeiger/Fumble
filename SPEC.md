@@ -1,6 +1,6 @@
 # Fumble — product specification
 
-*Version 4.1.1 · written as a hand-off document so the app can be rebuilt on another
+*Version 4.1.2 · written as a hand-off document so the app can be rebuilt on another
 platform without reading the Android source.*
 
 This describes **what Fumble is and why it behaves the way it does**, not how the Kotlin
@@ -141,7 +141,7 @@ default is wrong.
 2. **"Look"** — the four palettes, each as a row with a miniature swatch (ground, card,
    accent), the name, and a dot on the active one.
 
-Footer: `Fumble 4.1.1 · Foto Bumble`.
+Footer: `Fumble 4.1.2 · Foto Bumble`.
 
 ### 3.5 Celebration
 
@@ -354,9 +354,19 @@ OS flag is still set alongside for apps that honour it.
   are copied into the album instead:
   - The original stays where it is, so the chat still shows it. Nothing needs the
     user's approval — reading a photo and writing a new file of one's own is allowed.
-  - The copy keeps the original **capture date**, both in the library entry and, if the
-    file carries none (WhatsApp strips it), written into the image's EXIF data. Without
-    this the copy would sort under *today* in every gallery.
+  - ⚠ The copy must keep the original **capture date**, or it sorts under *today*.
+    On Android the date has to be **in the file itself**. Android re-reads a new file
+    when it is published and ignores any date the app passes with it. It also refuses
+    to change that date afterwards. It accepts the EXIF date only if a time-zone
+    offset is written next to it, or if the file's modification time is close to it.
+    So the copy gets both: EXIF date with offset (WhatsApp strips EXIF, so it is
+    usually written from scratch), and a modification time set back to the original
+    date before publishing. Version 4.1.1 wrote the EXIF date without an offset:
+    Google Photos, which reads EXIF itself, sorted the copies correctly, while
+    Android recorded no capture date and every other gallery showed them as new.
+    4.1.2 repairs such copies once on start.
+  - The *date added* stays the day of copying. No app can change it, so a gallery
+    that sorts by date added will still show copies as new.
   - The copy is recorded as already decided, so it is never shown as a card.
   - A copy costs storage. That is accepted: it is the only way to make the favourite
     findable, and favourites are few.
@@ -580,3 +590,7 @@ Collected from five releases of real use.
     created the target folder, and left every photo where it was. Read the result back
     before telling the user anything, and test with photos from other apps, not only
     the camera. (§5.7)
+12. **Check the result in more than one gallery.** Copies looked right in Google Photos
+    and wrong everywhere else, because Google Photos reads the file while other apps
+    ask Android. Reading the library entry back is what showed the capture date was
+    missing. (§5.7)

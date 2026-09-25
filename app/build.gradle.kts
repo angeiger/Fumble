@@ -24,8 +24,8 @@ android {
         // (IS_TRASHED / createTrashRequest) only exists from Android 11.
         minSdk = 30
         targetSdk = 35
-        versionCode = 7
-        versionName = "4.1.1"
+        versionCode = 8
+        versionName = "4.1.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

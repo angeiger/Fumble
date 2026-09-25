@@ -6,6 +6,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.IntentSender
 import android.database.Cursor
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
@@ -13,10 +14,11 @@ import android.util.Log
 import androidx.exifinterface.media.ExifInterface
 import com.fumble.app.domain.model.Photo
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
 import java.io.IOException
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.TimeZone
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -253,9 +255,11 @@ class MediaStoreDataSource @Inject constructor(
      * Copies a photo into [FavoritesAlbum], for photos Android will not let this app
      * move. Needs only read access, so no consent dialog. The copy belongs to this app.
      *
-     * The original date is written into the copy's EXIF data and `DATE_TAKEN`. Pictures
-     * received through messengers usually carry no EXIF at all, and without this the
-     * copy would sort into the gallery as a photo taken today.
+     * The copy must carry the original's date, or it sorts into galleries as a photo
+     * from today. Android re-derives the date from the file when the copy is published
+     * and ignores the `DATE_TAKEN` passed in (see [CopyDates]), so the date goes into
+     * the file itself: into the EXIF data, with its time-zone offset, and into the
+     * file's modification time, set while the copy is still pending.
      *
      * @return the copy's MediaStore id, or `null` if the copy could not be made. A
      *   half-written copy is removed rather than left behind.
@@ -268,7 +272,6 @@ class MediaStoreDataSource @Inject constructor(
             put(MediaStore.MediaColumns.DISPLAY_NAME, meta.displayName)
             put(MediaStore.MediaColumns.MIME_TYPE, meta.mimeType)
             put(MediaStore.MediaColumns.RELATIVE_PATH, FavoritesAlbum.RELATIVE_PATH)
-            put(MediaStore.MediaColumns.DATE_TAKEN, meta.takenMillis)
             put(MediaStore.MediaColumns.IS_PENDING, 1)
         }
         val target = try {
@@ -286,13 +289,13 @@ class MediaStoreDataSource @Inject constructor(
                     ?: throw IOException("Cannot write $target")
                 output.use { to -> from.copyTo(to) }
             }
-            stampDateTaken(target, meta.takenMillis)
+            stampDate(target, meta.takenMillis)
+            // Last before publishing: writing the EXIF data above touches the file time.
+            backdateFile(target, meta.takenMillis)
+            // Publishing scans the file, and the scan sets the dates from it.
             resolver.update(
                 target,
-                ContentValues().apply {
-                    put(MediaStore.MediaColumns.IS_PENDING, 0)
-                    put(MediaStore.MediaColumns.DATE_TAKEN, meta.takenMillis)
-                },
+                ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
                 null,
                 null,
             )
@@ -339,24 +342,166 @@ class MediaStoreDataSource @Inject constructor(
         }
     }
 
-    /** Best effort: a copy with the wrong date is still better than no copy. */
-    private fun stampDateTaken(target: Uri, takenMillis: Long) {
+    /**
+     * Writes [takenMillis] into the EXIF data of [target], with the time-zone offset
+     * that makes Android accept it as the capture date.
+     *
+     * A date the file already carries is left alone, unless it is one this app wrote
+     * earlier without an offset — copies from 4.1.1. Only for those is the zone known
+     * for certain; guessing one for a date written elsewhere could shift it by hours.
+     *
+     * Best effort: a copy with the wrong date is still better than no copy.
+     */
+    private fun stampDate(target: Uri, takenMillis: Long) {
         try {
             resolver.openFileDescriptor(target, "rw")?.use { descriptor ->
                 val exif = ExifInterface(descriptor.fileDescriptor)
-                if (exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL) == null) {
-                    val stamp = SimpleDateFormat(EXIF_DATE_PATTERN, Locale.US)
-                        .format(Date(takenMillis))
-                    exif.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, stamp)
-                    exif.setAttribute(ExifInterface.TAG_DATETIME, stamp)
-                    exif.saveAttributes()
-                }
+                val zone = TimeZone.getDefault()
+                val stamp = CopyDates.exifDateTime(takenMillis, zone)
+                val existing = exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)
+                val hasOffset = exif.getAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL) != null
+                if (existing != null && (existing != stamp || hasOffset)) return
+
+                val offset = CopyDates.exifOffset(takenMillis, zone)
+                exif.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, stamp)
+                exif.setAttribute(ExifInterface.TAG_DATETIME, stamp)
+                exif.setAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL, offset)
+                exif.setAttribute(ExifInterface.TAG_OFFSET_TIME, offset)
+                exif.saveAttributes()
             }
         } catch (e: IOException) {
             Log.d(TAG, "Could not stamp a date on $target", e)
         } catch (e: RuntimeException) {
             // Formats ExifInterface cannot write, e.g. some PNGs.
             Log.d(TAG, "Could not stamp a date on $target", e)
+        }
+    }
+
+    /**
+     * Sets the modification time of the file behind [target], which only works on files
+     * this app owns — its copies.
+     *
+     * @return the file's path if the time was set, for rescanning; otherwise `null`.
+     */
+    private fun backdateFile(target: Uri, takenMillis: Long): String? {
+        val path = try {
+            resolver.query(target, arrayOf(MediaStore.MediaColumns.DATA), null, null, null)
+                ?.use { if (it.moveToFirst()) it.getStringOrNull(0) else null }
+        } catch (e: RuntimeException) {
+            Log.d(TAG, "Could not find the file behind $target", e)
+            null
+        } ?: return null
+        return if (File(path).setLastModified(takenMillis)) {
+            path
+        } else {
+            Log.d(TAG, "Could not set the file time of $path")
+            null
+        }
+    }
+
+    /**
+     * Gives earlier copies their original date after all.
+     *
+     * Copies made before 4.1.2 have their date only in the EXIF data, without an offset,
+     * and a file time from the day they were copied — so Android shows them as new.
+     * They belong to this app, so their file can still be fixed and rescanned. Copies
+     * that already carry their date are skipped, which makes this cheap to run on
+     * every start.
+     *
+     * @param copies each copy's id mapped to the id of its original.
+     * @return how many copies verifiably carry their date now.
+     */
+    fun backdateCopies(copies: Map<Long, Long>): Int {
+        if (copies.isEmpty()) return 0
+        val fixed = mutableMapOf<Long, Long>()
+        val paths = mutableListOf<String>()
+
+        for ((copyId, dates) in fileDates(copies.keys.toList())) {
+            // Fine already: Android knows a capture date, and the file time agrees.
+            if (dates.takenMillis > 0 &&
+                !CopyDates.needsBackdating(dates.modifiedSeconds, dates.takenMillis)
+            ) {
+                continue
+            }
+            val copy = contentUri(copyId)
+            val takenMillis = readCopyMeta(contentUri(copies.getValue(copyId)))?.takenMillis
+                ?: readExifDate(copy)
+                ?: continue
+            if (!CopyDates.needsBackdating(dates.modifiedSeconds, takenMillis)) continue
+
+            stampDate(copy, takenMillis)
+            val path = backdateFile(copy, takenMillis) ?: continue
+            fixed[copyId] = takenMillis
+            paths += path
+        }
+        if (paths.isEmpty()) return 0
+
+        rescan(paths)
+        return fileDates(fixed.keys.toList()).count { (copyId, dates) ->
+            !CopyDates.needsBackdating(dates.modifiedSeconds, fixed.getValue(copyId))
+        }
+    }
+
+    /** The two dates Android keeps for a file, each in the unit MediaStore uses. */
+    private class FileDates(val takenMillis: Long, val modifiedSeconds: Long)
+
+    private fun fileDates(ids: List<Long>): Map<Long, FileDates> {
+        val dates = HashMap<Long, FileDates>(ids.size)
+        ids.chunked(LOCATE_CHUNK).forEach { chunk ->
+            val args = Bundle().apply {
+                putString(
+                    ContentResolver.QUERY_ARG_SQL_SELECTION,
+                    "${MediaStore.MediaColumns._ID} IN (${chunk.joinToString(",") { "?" }})",
+                )
+                putStringArray(
+                    ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS,
+                    Array(chunk.size) { chunk[it].toString() },
+                )
+            }
+            val projection = arrayOf(
+                MediaStore.MediaColumns._ID,
+                MediaStore.MediaColumns.DATE_TAKEN,
+                MediaStore.MediaColumns.DATE_MODIFIED,
+            )
+            try {
+                resolver.query(collection, projection, args, null)?.use { cursor ->
+                    while (cursor.moveToNext()) {
+                        // A missing DATE_TAKEN reads as 0: no capture date known.
+                        dates[cursor.getLong(0)] = FileDates(cursor.getLong(1), cursor.getLong(2))
+                    }
+                }
+            } catch (e: RuntimeException) {
+                Log.w(TAG, "Could not read file dates", e)
+            }
+        }
+        return dates
+    }
+
+    /** The date written into a copy, for when its original is gone. */
+    private fun readExifDate(target: Uri): Long? =
+        try {
+            resolver.openFileDescriptor(target, "r")?.use { descriptor ->
+                val exif = ExifInterface(descriptor.fileDescriptor)
+                CopyDates.parseExif(
+                    dateTime = exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL),
+                    offset = exif.getAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL),
+                    zone = TimeZone.getDefault(),
+                )
+            }
+        } catch (e: IOException) {
+            null
+        } catch (e: RuntimeException) {
+            null
+        }
+
+    /** Has Android read [paths] again, and waits until it has. */
+    private fun rescan(paths: List<String>) {
+        val done = CountDownLatch(paths.size)
+        MediaScannerConnection.scanFile(context, paths.toTypedArray(), null) { _, _ ->
+            done.countDown()
+        }
+        if (!done.await(RESCAN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            Log.w(TAG, "Rescan of ${paths.size} copies did not finish in time")
         }
     }
 
@@ -502,6 +647,8 @@ class MediaStoreDataSource @Inject constructor(
         const val UNKNOWN_BUCKET_ID = Long.MIN_VALUE
 
         private const val LOCATE_CHUNK = 400
-        private const val EXIF_DATE_PATTERN = "yyyy:MM:dd HH:mm:ss"
+
+        /** Generous: a scan takes milliseconds per file, but must never hang a flush. */
+        private const val RESCAN_TIMEOUT_SECONDS = 30L
     }
 }

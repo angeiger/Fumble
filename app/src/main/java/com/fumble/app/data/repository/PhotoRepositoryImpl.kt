@@ -361,6 +361,19 @@ class PhotoRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun repairCopyDates(): Int = withContext(io) {
+        // Under the write lock so a flush cannot be creating copies at the same time.
+        writeLock.withLock {
+            val copies = dao.copies().mapNotNull { row -> row.copyOf?.let { row.mediaId to it } }
+            try {
+                mediaStore.backdateCopies(copies.toMap())
+            } catch (e: RuntimeException) {
+                Log.w(TAG, "Could not repair copy dates", e)
+                0
+            }
+        }
+    }
+
     /** What happened to each favourite in one pass. */
     private class FavoriteTally {
         val inAlbum = mutableListOf<Long>()

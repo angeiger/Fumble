@@ -137,6 +137,14 @@ interface PhotoRepository {
      */
     suspend fun confirmApplied(kind: PendingKind, mediaIds: List<Long>): Applied
 
+    /**
+     * Gives album copies made by earlier versions their original date, so galleries
+     * stop showing them as new. Silent, and cheap once there is nothing left to fix.
+     *
+     * @return how many copies were fixed.
+     */
+    suspend fun repairCopyDates(): Int
+
     /** Clears the whole decision history so every photo can be reviewed again. */
     suspend fun resetHistory()
 

@@ -73,6 +73,10 @@ interface PhotoDecisionDao {
     @Query("UPDATE photo_decision SET favorite_applied = 1 WHERE media_id IN (:mediaIds)")
     suspend fun markFavoriteApplied(mediaIds: List<Long>)
 
+    /** Rows for album copies of favourites, see [PhotoDecisionEntity.copyOf]. */
+    @Query("SELECT * FROM photo_decision WHERE copy_of IS NOT NULL")
+    suspend fun copies(): List<PhotoDecisionEntity>
+
     // --- Stats -------------------------------------------------------------
 
     /** Swipes only: album copies of favourites have rows too, but were never swiped. */

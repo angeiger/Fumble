@@ -17,6 +17,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,17 +50,23 @@ fun PendingTrashPill(
     onEmptyNow: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val size = rememberFormattedSize(bytes)
-    val label = when {
-        count > 0 && favoriteCount > 0 ->
-            stringResource(R.string.pending_both, count, favoriteCount)
+    val visible = count > 0 || favoriteCount > 0
+    // By the time the pill fades out, the counts have already dropped to zero. Keep
+    // showing the last real ones instead of "0 to favourite" for the length of the fade.
+    var shown by remember { mutableStateOf(Pending(count, bytes, favoriteCount)) }
+    if (visible) shown = Pending(count, bytes, favoriteCount)
 
-        count > 0 -> stringResource(R.string.pending_trash, count, size)
-        else -> stringResource(R.string.pending_favorites, favoriteCount)
+    val size = rememberFormattedSize(shown.bytes)
+    val label = when {
+        shown.count > 0 && shown.favoriteCount > 0 ->
+            stringResource(R.string.pending_both, shown.count, shown.favoriteCount)
+
+        shown.count > 0 -> stringResource(R.string.pending_trash, shown.count, size)
+        else -> stringResource(R.string.pending_favorites, shown.favoriteCount)
     }
 
     AnimatedVisibility(
-        visible = count > 0 || favoriteCount > 0,
+        visible = visible,
         enter = fadeIn() + expandVertically(),
         exit = fadeOut() + shrinkVertically(),
         modifier = modifier,
@@ -100,3 +110,5 @@ fun PendingTrashPill(
         }
     }
 }
+
+private data class Pending(val count: Int, val bytes: Long, val favoriteCount: Int)

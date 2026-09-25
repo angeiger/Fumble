@@ -104,6 +104,9 @@ class SwipeViewModel @Inject constructor(
         started = true
         watchBacklog()
         reload()
+        // Copies made before 4.1.2 sorted into galleries as new photos. Fixing them
+        // needs photo access, so it starts here rather than at construction.
+        viewModelScope.launch { repository.repairCopyDates() }
     }
 
     /**

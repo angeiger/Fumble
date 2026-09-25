@@ -61,8 +61,8 @@ Ordner verschoben — es entsteht kein Duplikat und kein zusätzlicher Speicherv
 
 **Bilder aus WhatsApp, Telegram & Co.** darf Android nicht aus dem Ordner der
 jeweiligen App herausschieben. Die landen deshalb als **Kopie** im Album: Das Original
-bleibt im Chat sichtbar, die Kopie trägt das ursprüngliche Aufnahmedatum und taucht in
-der Galerie also an der richtigen Stelle auf. Dafür fragt dein Handy nicht einmal nach.
+bleibt im Chat sichtbar, die Kopie trägt das ursprüngliche Aufnahmedatum. Google Fotos
+sortiert sie deshalb beim richtigen Tag ein. Dafür fragt dein Handy nicht einmal nach.
 Die Meldung nach dem Anwenden sagt dir, wie viele davon Kopien sind.
 
 **So findest du sie:** In Google Fotos unter *Sammlungen → Auf diesem Gerät →

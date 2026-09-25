@@ -144,10 +144,26 @@ where it lives, and 4.1.0 learned that the hard way:
   `Android/media/<package>/` — every WhatsApp picture lives there — and it refuses
   *silently*: the update reports success, the target folder is even created, and the
   photo stays exactly where it was. 4.1.0 believed the report and announced 48 moves
-  into an empty album. From 4.1.1 those photos are copied instead, with their original
-  capture date carried over (as `DATE_TAKEN`, and stamped into the EXIF data when the
-  file has none, since WhatsApp strips it). The original stays in the chat. Copying a
-  file the app can read into its own new file needs no dialog.
+  into an empty album. From 4.1.1 those photos are copied instead. The original stays
+  in the chat. Copying a file the app can read into its own new file needs no dialog.
+
+**A copy has to carry its original date in the file itself.** The first version of
+the copy passed `DATE_TAKEN` to MediaStore and stamped the EXIF date. Google Photos read
+the EXIF date and sorted the copies correctly, but a check of the MediaStore row showed
+`DATE_TAKEN = NULL` and `DATE_MODIFIED` set to the day of copying, so every gallery
+that asks Android showed them as new. Publishing a pending file scans it, and the
+scanner sets the dates from the file alone. It ignores the `DATE_TAKEN` passed in, and
+it refuses a later update of that column. It accepts an EXIF date only with an
+`OffsetTimeOriginal` beside it, or when the file's modification time lies within a day
+of it.
+
+So since 4.1.2 `copyIntoFavorites` writes the EXIF date *with* its offset and sets the
+file's modification time to the original date while the copy is still pending. The
+publish scan then records both dates correctly. `DATE_ADDED` stays the day of copying,
+and no app can change it. Copies made by 4.1.1 are repaired once on start
+(`backdateCopies`): the app owns them, so it can still fix their file and rescan it.
+Copies that already carry their date are skipped. These date rules live in `CopyDates`,
+with tests.
 
 What makes this trustworthy is in `PhotoRepositoryImpl.flushFavoritesLocked`:
 
@@ -340,6 +356,7 @@ Unit tests:
 | `data/media/MediaStoreDataSource.kt` | Every read and write against the gallery |
 | `data/repository/PhotoRepositoryImpl.kt` | The shuffled queue, albums, de-duplication, trash and favourite flush |
 | `data/media/FavoritesAlbum.kt` | Which folder is the album, which photos must be copied |
+| `data/media/CopyDates.kt` | How a copy keeps its original date |
 | `ui/swipe/SwipeViewModel.kt` | Deck, undo stack, effects |
 | `ui/swipe/TrashPromptPolicy.kt` | When to ask the system to empty the queue |
 | `ui/swipe/components/SwipeCardStack.kt` | The stack and its animation |
